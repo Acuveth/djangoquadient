@@ -1,0 +1,58 @@
+<!-- api_client\templates\api_client\dashboard.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Quadient API Portal - Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-4">
+        <h1>Quadient API Portal</h1>
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        API Configuration
+                    </div>
+                    <div class="card-body">
+                        <form method="post">
+                            {% csrf_token %}
+                            {{ form.as_p }}
+                            <button type="submit" class="btn btn-primary">Save Configuration</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        Statistics
+                    </div>
+                    <div class="card-body">
+                        <p>Batch Count: {{ batch_count }}</p>
+                        <p>Document Count: {{ document_count }}</p>
+                    </div>
+                </div>
+                <div class="card mt-3">
+                    <div class="card-header">
+                        Recent Batches
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-group">
+                            {% for batch in latest_batches %}
+                            <li class="list-group-item">
+                                <a href="{% url 'batch_detail' batch.batch_id %}">{{ batch.name }}</a>
+                                <span class="badge bg-secondary float-end">{{ batch.created_at|date }}</span>
+                            </li>
+                            {% empty %}
+                            <li class="list-group-item">No batches found</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

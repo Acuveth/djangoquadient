@@ -1,0 +1,117 @@
+{% extends 'api_client/base.html' %}
+
+{% block title %}{{ endpoint.name }} - Quadient API Client{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h2>{{ endpoint.name }}</h2>
+                <p class="text-muted">{{ endpoint.method }} {{ endpoint.path }}</p>
+            </div>
+            <div class="card-body">
+                <a href="javascript:history.back()" class="btn btn-outline-secondary mb-3">Back</a>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <h3>Request</h3>
+                        <div class="form-group mb-3">
+                            <label for="requestBody" class="form-label">Request Body (JSON):</label>
+                            <textarea class="form-control" id="requestBody" rows="10">{
+  "applicationId": 123
+}</textarea>
+                        </div>
+                        <button id="sendRequest" class="btn btn-primary">Send Request</button>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h3>Response</h3>
+                        <div class="loading" id="loading">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p>Sending request...</p>
+                        </div>
+                        <div class="result-container">
+                            <div class="mb-2">
+                                <strong>Status:</strong> <span id="responseStatus">-</span>
+                            </div>
+                            <div id="responseContainer">
+                                <p class="text-muted">Response will appear here after sending a request.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const sendRequestBtn = document.getElementById('sendRequest');
+    const requestBodyTextarea = document.getElementById('requestBody');
+    const responseContainer = document.getElementById('responseContainer');
+    const responseStatus = document.getElementById('responseStatus');
+    const loading = document.getElementById('loading');
+    
+    sendRequestBtn.addEventListener('click', async function() {
+        // Show loading indicator
+        loading.style.display = 'block';
+        responseContainer.innerHTML = '';
+        responseStatus.textContent = '-';
+        
+        try {
+            // Get request body from textarea
+            let requestBody;
+            try {
+                requestBody = JSON.parse(requestBodyTextarea.value);
+            } catch (e) {
+                alert('Invalid JSON in request body: ' + e.message);
+                loading.style.display = 'none';
+                return;
+            }
+            
+            // Make the API call
+            const response = await fetch('{% url "call_api" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    path: '{{ endpoint.path }}',
+                    data: requestBody
+                })
+            });
+            
+            const data = await response.json();
+            
+            // Display the status code
+            responseStatus.textContent = data.status_code;
+            
+            // Format and display the response
+            const formatter = new JSONFormatter(data.response, 2, {
+                hoverPreviewEnabled: true,
+                hoverPreviewArrayCount: 100,
+                hoverPreviewFieldCount: 5,
+                theme: 'dark',
+                animateOpen: true,
+                animateClose: true
+            });
+            
+            responseContainer.innerHTML = '';
+            responseContainer.appendChild(formatter.render());
+            
+        } catch (error) {
+            responseContainer.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+        } finally {
+            // Hide loading indicator
+            loading.style.display = 'none';
+        }
+    });
+});
+</script>
+{% endblock %}
