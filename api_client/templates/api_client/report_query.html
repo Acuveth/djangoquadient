@@ -1,0 +1,306 @@
+{% extends 'api_client/base.html' %}
+
+{% block title %}Messenger Report Query - Quadient API Client{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h2>Messenger Report Query</h2>
+            </div>
+            <div class="card-body">
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <form method="post" class="mb-4">
+                            {% csrf_token %}
+                            <div class="form-group mb-3">
+                                <label for="batch_id" class="form-label">Batch ID:</label>
+                                <input type="number" class="form-control" id="batch_id" name="batch_id" 
+                                       value="{{ batch_id|default:'' }}" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Get Report</button>
+                        </form>
+                    </div>
+                </div>
+
+                {% if error_message %}
+                    <div class="alert alert-danger" role="alert">
+                        {{ error_message }}
+                    </div>
+                {% endif %}
+
+                {% if report_content %}
+                    <div class="card mt-4">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h3>Report Result</h3>
+                            {% if filename %}
+                                <a href="#" class="btn btn-sm btn-success" id="downloadBtn">Download Report</a>
+                            {% endif %}
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <strong>Status:</strong> {{ status_code }}
+                                {% if filename %}
+                                    <br><strong>Filename:</strong> {{ filename }}
+                                {% endif %}
+                            </div>
+                            
+                            {% if parsed_data.stats.total_messages > 0 %}
+                            <div class="row mb-4">
+                                <div class="col-md-3">
+                                    <div class="card bg-light">
+                                        <div class="card-body text-center">
+                                            <h5 class="card-title">Total Messages</h5>
+                                            <p class="card-text fs-2">{{ parsed_data.stats.total_messages }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-light">
+                                        <div class="card-body text-center">
+                                            <h5 class="card-title">Unique Recipients</h5>
+                                            <p class="card-text fs-2">{{ parsed_data.stats.unique_recipient_count }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-light">
+                                        <div class="card-body text-center">
+                                            <h5 class="card-title">Open Rate</h5>
+                                            <p class="card-text fs-2">{{ parsed_data.stats.open_rate }}%</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-light">
+                                        <div class="card-body text-center">
+                                            <h5 class="card-title">Click Rate</h5>
+                                            <p class="card-text fs-2">{{ parsed_data.stats.click_rate }}%</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                            
+                            <!-- Tab navigation -->
+                            <ul class="nav nav-tabs mb-3" id="reportTabs" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" id="messages-tab" data-bs-toggle="tab" 
+                                            data-bs-target="#messages-content" type="button" role="tab">
+                                        Messages ({{ parsed_data.messages|length }})
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="trackurls-tab" data-bs-toggle="tab" 
+                                            data-bs-target="#trackurls-content" type="button" role="tab">
+                                        Track URLs ({{ parsed_data.trackurls|length }})
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="raw-tab" data-bs-toggle="tab" 
+                                            data-bs-target="#raw-content" type="button" role="tab">
+                                        Raw Data
+                                    </button>
+                                </li>
+                            </ul>
+                            
+                            <!-- Tab content -->
+                            <div class="tab-content" id="reportTabsContent">
+                                <!-- Messages tab -->
+                                <div class="tab-pane fade show active" id="messages-content" role="tabpanel">
+                                    <div class="mb-3">
+                                        <input type="text" id="messageSearch" class="form-control" 
+                                               placeholder="Search messages...">
+                                    </div>
+                                    
+                                    <div class="table-responsive">
+                                        <table class="table table-striped table-hover" id="messagesTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>No.</th>
+                                                    <th>Email</th>
+                                                    <th>Status</th>
+                                                    <th>Detail</th>
+                                                    <th>Sender</th>
+                                                    <th>Sent Time</th>
+                                                    <th>Open Time</th>
+                                                    <th>Click Time</th>
+                                                    <th>Opens</th>
+                                                    <th>Clicks</th>
+                                                    <th>Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for message in parsed_data.messages %}
+                                                <tr>
+                                                    <td>{{ message.number }}</td>
+                                                    <td>{{ message.email }}</td>
+                                                    <td>
+                                                        <span class="badge bg-success">{{ message.status }}</span>
+                                                    </td>
+                                                    <td class="text-truncate" style="max-width: 200px;">{{ message.detail }}</td>
+                                                    <td>{{ message.sender }}</td>
+                                                    <td>{{ message.sent_time }}</td>
+                                                    <td>{{ message.open_time }}</td>
+                                                    <td>{{ message.click_time }}</td>
+                                                    <td>{{ message.opens }}</td>
+                                                    <td>{{ message.clicks }}</td>
+                                                    <td>
+                                                        {% if message.landing_page_url %}
+                                                        <a href="{{ message.landing_page_url }}" target="_blank" 
+                                                           class="btn btn-sm btn-outline-primary">
+                                                            Landing Page
+                                                        </a>
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
+                                                {% empty %}
+                                                <tr>
+                                                    <td colspan="11" class="text-center">No messages found</td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                
+                                <!-- Track URLs tab -->
+                                <div class="tab-pane fade" id="trackurls-content" role="tabpanel">
+                                    <div class="table-responsive">
+                                        <table class="table table-striped table-hover">
+                                            <thead>
+                                                <tr>
+                                                    <th>URL</th>
+                                                    <th>Timestamp</th>
+                                                    <th>IP Address</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for trackurl in parsed_data.trackurls %}
+                                                <tr>
+                                                    <td class="text-truncate" style="max-width: 350px;">
+                                                        <a href="{{ trackurl.url }}" target="_blank">
+                                                            {{ trackurl.url }}
+                                                        </a>
+                                                    </td>
+                                                    <td>{{ trackurl.timestamp }}</td>
+                                                    <td>{{ trackurl.ip }}</td>
+                                                </tr>
+                                                {% empty %}
+                                                <tr>
+                                                    <td colspan="3" class="text-center">No track URLs found</td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                
+                                <!-- Raw data tab -->
+                                <div class="tab-pane fade" id="raw-content" role="tabpanel">
+                                    <pre class="bg-light p-3 rounded">{{ report_content|safe }}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if report_content and filename %}
+<script>
+    document.getElementById('downloadBtn').addEventListener('click', function(e) {
+        e.preventDefault();
+        
+        // Create a Blob from the report content
+        const blob = new Blob([`{{ report_content|escapejs }}`], { type: 'text/plain' });
+        
+        // Create a link element
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = "{{ filename|escapejs }}";
+        
+        // Append the link to the document
+        document.body.appendChild(link);
+        
+        // Click the link to start the download
+        link.click();
+        
+        // Remove the link from the document
+        document.body.removeChild(link);
+    });
+    
+    // Table search functionality
+    document.getElementById('messageSearch').addEventListener('keyup', function() {
+        const searchTerm = this.value.toLowerCase();
+        const rows = document.querySelectorAll('#messagesTable tbody tr');
+        
+        rows.forEach(row => {
+            const text = row.textContent.toLowerCase();
+            if (text.includes(searchTerm)) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    });
+    
+    // Add table sorting functionality
+    document.querySelectorAll('#messagesTable th').forEach((header, index) => {
+        if (index > 0) { // Skip the first column (No.)
+            header.style.cursor = 'pointer';
+            header.addEventListener('click', () => {
+                sortTable(index);
+            });
+        }
+    });
+    
+    function sortTable(columnIndex) {
+        const table = document.getElementById('messagesTable');
+        let switching = true;
+        let shouldSwitch;
+        let dir = 'asc';
+        let switchcount = 0;
+        
+        while (switching) {
+            switching = false;
+            const rows = table.rows;
+            
+            for (let i = 1; i < (rows.length - 1); i++) {
+                shouldSwitch = false;
+                const x = rows[i].getElementsByTagName('TD')[columnIndex];
+                const y = rows[i + 1].getElementsByTagName('TD')[columnIndex];
+                
+                if (dir === 'asc') {
+                    if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) {
+                        shouldSwitch = true;
+                        break;
+                    }
+                } else if (dir === 'desc') {
+                    if (x.innerHTML.toLowerCase() < y.innerHTML.toLowerCase()) {
+                        shouldSwitch = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (shouldSwitch) {
+                rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+                switching = true;
+                switchcount++;
+            } else {
+                if (switchcount === 0 && dir === 'asc') {
+                    dir = 'desc';
+                    switching = true;
+                }
+            }
+        }
+    }
+</script>
+{% endif %}
+{% endblock %}
