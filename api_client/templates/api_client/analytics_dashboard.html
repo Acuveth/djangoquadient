@@ -65,7 +65,6 @@
 {% endblock %}
 
 {% block content %}
-<!-- Rest of the template content remains the same -->
 <div class="row mb-4">
     <div class="col">
         <h1>Quadient Messenger Analytics Dashboard</h1>
@@ -77,15 +76,35 @@
     <div class="col">
         <div class="card">
             <div class="card-body">
-                <div class="row align-items-center">
-                    <div class="col-md-4">
-                        <label for="batch-select" class="form-label">Select Batch:</label>
-                        <select id="batch-select" class="form-select">
-                            <option value="" disabled selected>Loading batches...</option>
-                        </select>
+                <div class="row">
+                    <div class="col-md-7">
+                        <form id="dateRangeForm" class="row g-3 align-items-end">
+                            {% csrf_token %}
+                            <div class="col-md-4">
+                                <label for="from_date" class="form-label">From Date:</label>
+                                <input type="date" class="form-control" id="from_date" name="from_date">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="to_date" class="form-label">To Date:</label>
+                                <input type="date" class="form-control" id="to_date" name="to_date">
+                            </div>
+                            <div class="col-md-4">
+                                <button type="submit" class="btn btn-primary w-100">Load Batches</button>
+                            </div>
+                        </form>
                     </div>
-                    <div class="col-md-2">
-                        <button id="load-data-btn" class="btn btn-primary mt-4">Load Data</button>
+                    <div class="col-md-5">
+                        <div class="row align-items-end">
+                            <div class="col-md-8">
+                                <label for="batch-select" class="form-label">Select Batch:</label>
+                                <select id="batch-select" class="form-select">
+                                    <option value="" disabled selected>Select date range first</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <button id="load-data-btn" class="btn btn-success w-100">Load Analytics</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -94,11 +113,11 @@
 </div>
 
 <!-- Loading spinner -->
-<div id="loading-indicator" class="loading-spinner">
+<div id="loading-indicator" class="loading-spinner" style="display: none;">
     <div class="spinner-border text-primary" role="status">
         <span class="visually-hidden">Loading...</span>
     </div>
-    <p class="mt-2">Loading analytics data...</p>
+    <p class="mt-2" id="loading-text">Loading batches...</p>
 </div>
 
 <!-- Dashboard content (hidden until data loads) -->
@@ -158,7 +177,7 @@
                 </div>
             </div>
             <div class="insights-box">
-                <strong>INSIGHTS:</strong> <span id="device-insights">Desktop users make up the majority, with Windows being the dominant OS. Chrome leads browser usage, followed by Safari. Consider optimizing for these platforms while ensuring mobile compatibility.</span>
+                <strong>INSIGHTS:</strong> <span id="device-insights">Loading device insights...</span>
             </div>
         </div>
     </div>
@@ -174,7 +193,7 @@
                 <canvas id="time-chart"></canvas>
             </div>
             <div class="insights-box">
-                <strong>INSIGHTS:</strong> <span id="time-insights">Peak engagement occurs between 9:00-11:00 and 15:00-17:00, suggesting optimal sending times during mid-morning and mid-afternoon. Consider scheduling important campaigns during these peak hours for maximum impact.</span>
+                <strong>INSIGHTS:</strong> <span id="time-insights">Loading time insights...</span>
             </div>
         </div>
     </div>
@@ -185,14 +204,14 @@
             <i class="bi bi-shield-check"></i> Compliance and Unsubscribe Monitoring
         </div>
         <div class="card-body">
-            <h5 class="mb-3">Unsubscribe and Spam Complaint Rates (Last 7 Days)</h5>
+            <h5 class="mb-3">Unsubscribe and Spam Complaint Rates</h5>
             <div class="chart-container">
                 <canvas id="compliance-chart"></canvas>
             </div>
             
             <div class="row mt-4">
                 <div class="col-md-6">
-                    <div id="unsubscribe-alert" class="alert-status">
+                    <div id="unsubscribe-alert" class="alert-status alert-normal">
                         <h6 class="mb-2">Unsubscribe Rate Alert</h6>
                         <div class="d-flex justify-content-between">
                             <div>
@@ -204,7 +223,7 @@
                     </div>
                 </div>
                 <div class="col-md-6">
-                    <div id="spam-alert" class="alert-status">
+                    <div id="spam-alert" class="alert-status alert-normal">
                         <h6 class="mb-2">Spam Complaint Alert</h6>
                         <div class="d-flex justify-content-between">
                             <div>
@@ -218,15 +237,20 @@
             </div>
             
             <div class="insights-box">
-                <strong>INSIGHTS:</strong> <span id="compliance-insights">Unsubscribe rates are within normal range. Monitor for any unusual spikes that may indicate content or targeting issues.</span>
+                <strong>INSIGHTS:</strong> <span id="compliance-insights">Loading compliance insights...</span>
             </div>
         </div>
     </div>
 
     <div class="text-muted small mt-4 mb-5">
         <p>This dashboard uses the Quadient Messenger REST API to analyze batch statistics and message engagement patterns.</p>
-        <p>Data is fetched from the actual API endpoints defined in the Quadient API documentation.</p>
     </div>
+</div>
+
+<!-- No data message -->
+<div id="no-data-message" class="alert alert-info text-center" style="display: none;">
+    <h4>No Data Available</h4>
+    <p>Please select a date range and batch to view analytics.</p>
 </div>
 {% endblock %}
 
@@ -234,137 +258,398 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
+        // Set default dates (last 30 days)
+        const today = new Date();
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(today.getDate() - 30);
+        
+        document.getElementById('from_date').value = formatDate(thirtyDaysAgo);
+        document.getElementById('to_date').value = formatDate(today);
+        
+        // Elements
+        const dateRangeForm = document.getElementById('dateRangeForm');
         const batchSelect = document.getElementById('batch-select');
         const loadDataBtn = document.getElementById('load-data-btn');
         const loadingIndicator = document.getElementById('loading-indicator');
+        const loadingText = document.getElementById('loading-text');
         const dashboardContent = document.getElementById('dashboard-content');
+        const noDataMessage = document.getElementById('no-data-message');
         
         // Chart objects
         let osChart, browserChart, deviceChart, timeChart, complianceChart;
         
-        // Function to populate batch dropdown
-        function loadBatches() {
-            // In a real implementation, this would fetch from your Django view
-            // For now, we'll use mock data
-            const mockBatches = [
-                { id: 1, name: "March Newsletter", type: "Email", numberOfRecords: 5000 },
-                { id: 2, name: "Product Announcement", type: "Email", numberOfRecords: 3500 },
-                { id: 3, name: "Weekly Update", type: "Email", numberOfRecords: 2800 }
-            ];
-            
-            // Clear existing options
-            batchSelect.innerHTML = '';
-            
-            // Add options
-            mockBatches.forEach(batch => {
-                const option = document.createElement('option');
-                option.value = batch.id;
-                option.textContent = `${batch.name} (${batch.type}) - ${batch.numberOfRecords} records`;
-                batchSelect.appendChild(option);
-            });
-        }
-        
-        // Load batches on page load
-        loadBatches();
+        // Handle date range form submission
+        dateRangeForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            loadBatches();
+        });
         
         // Handle load data button click
         loadDataBtn.addEventListener('click', function() {
-            if (!batchSelect.value) return;
+            if (!batchSelect.value) {
+                alert('Please select a batch first');
+                return;
+            }
             
-            // Show loading indicator
-            loadingIndicator.style.display = 'block';
-            dashboardContent.style.display = 'none';
-            
-            // Simulate API delay
-            setTimeout(function() {
-                loadAnalyticsData(batchSelect.value);
-            }, 1000);
+            loadBatchAnalytics(batchSelect.value);
         });
         
-        // Function to load analytics data for selected batch
-        function loadAnalyticsData(batchId) {
-            // In a real implementation, this would fetch from your Django view
-            // For demo purposes, we're using mock data
-            
-            // Mock batch details
-            const batchDetails = {
-                id: batchId,
-                name: batchSelect.options[batchSelect.selectedIndex].text.split(' (')[0],
-                numberOfRecords: parseInt(batchId) * 1000 + 2000,
-                delivered: parseInt(batchId) * 950 + 1950,
-                opened: parseInt(batchId) * 550 + 1500
-            };
-            
-            // Mock device statistics
-            const deviceStats = {
-                clientOS: [
-                    { name: "Windows", value: 45 },
-                    { name: "MacOS", value: 25 },
-                    { name: "iOS", value: 15 },
-                    { name: "Android", value: 12 },
-                    { name: "Linux", value: 3 }
-                ],
-                clientBrowser: [
-                    { name: "Chrome", value: 38 },
-                    { name: "Safari", value: 22 },
-                    { name: "Outlook", value: 18 },
-                    { name: "Gmail", value: 12 },
-                    { name: "Firefox", value: 6 },
-                    { name: "Edge", value: 4 }
-                ],
-                deviceType: [
-                    { name: "Desktop", value: 65 },
-                    { name: "Mobile", value: 35 }
-                ]
-            };
-            
-            // Mock time-based data
-            const timeData = Array.from({length: 24}, (_, i) => ({
-                hour: i,
-                opens: Math.floor(Math.random() * 150) + 50,
-                clicks: Math.floor(Math.random() * 80) + 20
-            }));
-            
-            // Mock compliance data
-            const complianceData = Array.from({length: 7}, (_, i) => {
-                const date = new Date();
-                date.setDate(date.getDate() - 6 + i);
-                return {
-                    date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                    unsubscribeRate: (Math.random() * 0.7 + 0.2).toFixed(2),
-                    spamRate: (Math.random() * 0.15).toFixed(2)
-                };
-            });
-            
-            // Update the UI with the fetched data
-            updateDashboard(batchDetails, deviceStats, timeData, complianceData);
+        // Function to format date as YYYY-MM-DD
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
         }
         
-        // Function to update dashboard UI with data
-        function updateDashboard(batchDetails, deviceStats, timeData, complianceData) {
-            // Update batch overview stats
-            document.getElementById('total-messages').textContent = batchDetails.numberOfRecords.toLocaleString();
-            document.getElementById('delivered-messages').textContent = batchDetails.delivered.toLocaleString();
-            document.getElementById('opened-messages').textContent = batchDetails.opened.toLocaleString();
+        // Function to load batches based on date range
+        function loadBatches() {
+            const fromDate = document.getElementById('from_date').value;
+            const toDate = document.getElementById('to_date').value;
             
-            const openRate = ((batchDetails.opened / batchDetails.delivered) * 100).toFixed(1);
+            if (!fromDate || !toDate) {
+                alert('Please select both from and to dates');
+                return;
+            }
+            
+            // Show loading indicator
+            showLoading('Loading batches...');
+            dashboardContent.style.display = 'none';
+            noDataMessage.style.display = 'none';
+            
+            // Clear the batch dropdown
+            batchSelect.innerHTML = '<option value="" disabled selected>Loading batches...</option>';
+            
+            // Get CSRF token
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+            
+            // Fetch batches from the API
+            fetch('/portal/batches/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': csrfToken
+                },
+                body: new URLSearchParams({
+                    'from_date': fromDate,
+                    'to_date': toDate,
+                    'batch_type': 'Email'
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.text();
+            })
+            .then(html => {
+                // Parse the HTML response to extract batch data
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                
+                // Find all batches from the response
+                const allBatches = [];
+                
+                console.log('Parsing HTML response for batches...');
+                
+                // Look for batch tables in all tabs
+                const batchTables = doc.querySelectorAll('.table');
+                if (batchTables.length === 0) {
+                    console.log('No batch tables found in response');
+                }
+                
+                // Try to find each tab content section
+                const runningTab = doc.querySelector('#running-content');
+                const waitingTab = doc.querySelector('#waiting-content');
+                const onDemandTab = doc.querySelector('#ondemand-content');
+                
+                console.log('Tab sections found:', {
+                    running: !!runningTab,
+                    waiting: !!waitingTab,
+                    onDemand: !!onDemandTab
+                });
+                
+                // Process running batches
+                if (runningTab) {
+                    const runningTable = runningTab.querySelector('table');
+                    if (runningTable) {
+                        const runningRows = runningTable.querySelectorAll('tbody tr');
+                        console.log(`Found ${runningRows.length} running batch rows`);
+                        
+                        runningRows.forEach((row, index) => {
+                            // Skip empty rows or "No batches found" rows
+                            if (!row.querySelector('.text-center')) {
+                                extractBatchData(row, 'Running', allBatches);
+                            } else {
+                                console.log('Skipping empty or "No batches found" row');
+                            }
+                        });
+                    }
+                }
+                
+                // Process waiting batches
+                if (waitingTab) {
+                    const waitingTable = waitingTab.querySelector('table');
+                    if (waitingTable) {
+                        const waitingRows = waitingTable.querySelectorAll('tbody tr');
+                        console.log(`Found ${waitingRows.length} waiting batch rows`);
+                        
+                        waitingRows.forEach((row, index) => {
+                            if (!row.querySelector('.text-center')) {
+                                extractBatchData(row, 'Waiting', allBatches);
+                            }
+                        });
+                    }
+                }
+                
+                // Process on-demand batches
+                if (onDemandTab) {
+                    const onDemandTable = onDemandTab.querySelector('table');
+                    if (onDemandTable) {
+                        const onDemandRows = onDemandTable.querySelectorAll('tbody tr');
+                        console.log(`Found ${onDemandRows.length} on-demand batch rows`);
+                        
+                        onDemandRows.forEach((row, index) => {
+                            if (!row.querySelector('.text-center')) {
+                                extractBatchData(row, 'On Demand', allBatches);
+                            }
+                        });
+                    }
+                }
+                
+                // Populate the batch dropdown
+                batchSelect.innerHTML = '';
+                
+                if (allBatches.length === 0) {
+                    batchSelect.innerHTML = '<option value="" disabled selected>No batches found</option>';
+                    hideLoading();
+                    noDataMessage.style.display = 'block';
+                    return;
+                }
+                
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.disabled = true;
+                defaultOption.selected = true;
+                defaultOption.textContent = `Select a batch (${allBatches.length} found)`;
+                batchSelect.appendChild(defaultOption);
+                
+                // Sort batches by upload time (most recent first)
+                allBatches.sort((a, b) => {
+                    return new Date(b.uploadTime) - new Date(a.uploadTime);
+                });
+                
+                // Add options for each batch
+                allBatches.forEach(batch => {
+                    const option = document.createElement('option');
+                    option.value = batch.id;
+                    option.textContent = `${batch.name} (${batch.recordCount} records)`;
+                    option.setAttribute('data-category', batch.category);
+                    option.setAttribute('data-type', batch.type);
+                    batchSelect.appendChild(option);
+                });
+                
+                hideLoading();
+            })
+            .catch(error => {
+                console.error('Error fetching batches:', error);
+                batchSelect.innerHTML = '<option value="" disabled selected>Error loading batches</option>';
+                hideLoading();
+                alert('Error loading batches: ' + error.message);
+            });
+        }
+        
+        // Helper function to extract batch data from a table row
+        function extractBatchData(row, category, batchArray) {
+            try {
+                const columns = row.querySelectorAll('td');
+                if (columns.length >= 8) {
+                    // Look for Report button to extract the batch ID from the href
+                    let batchId = '';
+                    const reportLink = row.querySelector('a[href*="report_query"]');
+                    if (reportLink) {
+                        // Extract batch_id from the URL
+                        const href = reportLink.getAttribute('href');
+                        const match = href.match(/batch_id=(\d+)/);
+                        if (match && match[1]) {
+                            batchId = match[1];
+                        }
+                    }
+                    
+                    // If we couldn't extract from link, use the text content as fallback
+                    if (!batchId) {
+                        batchId = columns[0].textContent.trim();
+                    }
+                    
+                    // Get batch name from the second column
+                    const name = columns[1].textContent.trim();
+                    
+                    // Get type from badge in third column
+                    let type = 'Unknown';
+                    const typeElement = columns[2].querySelector('.badge');
+                    if (typeElement) {
+                        type = typeElement.textContent.trim();
+                    }
+                    
+                    // Get upload time from fourth column
+                    const uploadTime = columns[3].textContent.trim();
+                    
+                    // Get record count from fifth column (number of records)
+                    let recordCount = 0;
+                    try {
+                        recordCount = parseInt(columns[4].textContent.trim().replace(/,/g, ''), 10);
+                        if (isNaN(recordCount)) recordCount = 0;
+                    } catch (e) {
+                        console.error('Error parsing record count:', e);
+                    }
+                    
+                    // Get state from badge in status column (9th column)
+                    let state = '';
+                    if (columns.length > 8) {
+                        const stateElement = columns[8].querySelector('.badge');
+                        if (stateElement) {
+                            state = stateElement.textContent.trim();
+                        }
+                    }
+                    
+                    batchArray.push({
+                        id: batchId,
+                        name: name,
+                        type: type,
+                        uploadTime: uploadTime,
+                        recordCount: recordCount,
+                        state: state,
+                        category: category
+                    });
+                    
+                    console.log(`Extracted batch: ${batchId} - ${name} (${type})`);
+                }
+            } catch (error) {
+                console.error('Error extracting batch data:', error);
+            }
+        }
+        
+        // Function to load analytics for a selected batch
+        function loadBatchAnalytics(batchId) {
+            showLoading('Loading analytics data...');
+            dashboardContent.style.display = 'none';
+            noDataMessage.style.display = 'none';
+            
+            // Remove any previous error messages
+            const existingErrors = document.querySelectorAll('.alert-danger');
+            existingErrors.forEach(element => element.remove());
+            
+            // Get batch details from the selected option
+            const selectedOption = batchSelect.options[batchSelect.selectedIndex];
+            const batchName = selectedOption.textContent.split(' (')[0];
+            const batchType = selectedOption.getAttribute('data-type');
+            
+            console.log(`Loading analytics for batch: ${batchId} - ${batchName} (${batchType})`);
+            
+            // First, check if we need to handle NaN in batchId
+            const sanitizedBatchId = isNaN(parseInt(batchId)) ? batchId : parseInt(batchId);
+            
+            // Fetch device analytics
+            fetch(`/portal/api/dashboard/batch-device-analytics/?batch_id=${sanitizedBatchId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Device analytics API returned ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(deviceData => {
+                    console.log('Device analytics data:', deviceData);
+                    
+                    if (!deviceData.success) {
+                        throw new Error(deviceData.error || 'Failed to get device analytics');
+                    }
+                    
+                    // Fetch time analytics
+                    return fetch(`/portal/api/dashboard/time-analytics/`)
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error(`Time analytics API returned ${response.status}: ${response.statusText}`);
+                            }
+                            return response.json();
+                        })
+                        .then(timeData => {
+                            console.log('Time analytics data:', timeData);
+                            
+                            if (!timeData.success) {
+                                throw new Error(timeData.error || 'Failed to get time analytics');
+                            }
+                            
+                            // Fetch compliance data
+                            return fetch(`/portal/api/dashboard/batch-compliance-data/?batch_id=${sanitizedBatchId}`)
+                                .then(response => {
+                                    if (!response.ok) {
+                                        throw new Error(`Compliance data API returned ${response.status}: ${response.statusText}`);
+                                    }
+                                    return response.json();
+                                })
+                                .then(complianceData => {
+                                    console.log('Compliance data:', complianceData);
+                                    
+                                    if (!complianceData.success) {
+                                        throw new Error(complianceData.error || 'Failed to get compliance data');
+                                    }
+                                    
+                                    // Update dashboard with all the data
+                                    updateDashboard(batchId, batchName, deviceData, timeData, complianceData);
+                                });
+                        });
+                })
+                .catch(error => {
+                    console.error('Error fetching analytics data:', error);
+                    hideLoading();
+                    
+                    // Show a more user-friendly error message
+                    const errorMessage = document.createElement('div');
+                    errorMessage.className = 'alert alert-danger';
+                    errorMessage.innerHTML = `
+                        <h4>Error Loading Analytics</h4>
+                        <p>${error.message}</p>
+                        <p>Please try selecting a different batch or contact support.</p>
+                    `;
+                    
+                    // Clear any existing content and show the error
+                    dashboardContent.style.display = 'none';
+                    noDataMessage.style.display = 'none';
+                    document.getElementById('loading-indicator').insertAdjacentElement('afterend', errorMessage);
+                });
+        }
+        
+        
+        // Function to update dashboard with analytics data
+        function updateDashboard(batchId, batchName, deviceData, timeData, complianceData) {
+            // Update batch overview stats
+            document.getElementById('total-messages').textContent = deviceData.total_sent.toLocaleString();
+            document.getElementById('delivered-messages').textContent = deviceData.total_delivered.toLocaleString();
+            document.getElementById('opened-messages').textContent = deviceData.total_opens.toLocaleString();
+            
+            const openRate = ((deviceData.total_opens / deviceData.total_delivered) * 100).toFixed(1);
             document.getElementById('open-rate').textContent = openRate + '%';
             
             // Create or update charts
-            createDeviceCharts(deviceStats);
+            createDeviceCharts(deviceData);
             createTimeChart(timeData);
             createComplianceChart(complianceData);
             
             // Update compliance alerts
-            updateComplianceAlerts(complianceData[complianceData.length - 1]);
+            updateComplianceAlerts(complianceData);
+            
+            // Generate insights
+            generateDeviceInsights(deviceData);
+            generateTimeInsights(timeData);
+            generateComplianceInsights(complianceData);
             
             // Hide loading indicator and show dashboard
-            loadingIndicator.style.display = 'none';
+            hideLoading();
             dashboardContent.style.display = 'block';
         }
         
         // Create device and client charts
-        function createDeviceCharts(deviceStats) {
+        function createDeviceCharts(deviceData) {
             const chartOptions = {
                 responsive: true,
                 maintainAspectRatio: false,
@@ -378,13 +663,18 @@
             // OS Chart
             const osCtx = document.getElementById('os-chart').getContext('2d');
             if (osChart) osChart.destroy();
+            
+            const osLabels = Object.keys(deviceData.os_stats);
+            const osValues = Object.values(deviceData.os_stats);
+            
             osChart = new Chart(osCtx, {
                 type: 'pie',
                 data: {
-                    labels: deviceStats.clientOS.map(item => item.name),
+                    labels: osLabels,
                     datasets: [{
-                        data: deviceStats.clientOS.map(item => item.value),
+                        data: osValues,
                         backgroundColor: [
+                            '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796',
                             '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'
                         ]
                     }]
@@ -395,13 +685,18 @@
             // Browser Chart
             const browserCtx = document.getElementById('browser-chart').getContext('2d');
             if (browserChart) browserChart.destroy();
+            
+            const browserLabels = Object.keys(deviceData.browser_stats);
+            const browserValues = Object.values(deviceData.browser_stats);
+            
             browserChart = new Chart(browserCtx, {
                 type: 'pie',
                 data: {
-                    labels: deviceStats.clientBrowser.map(item => item.name),
+                    labels: browserLabels,
                     datasets: [{
-                        data: deviceStats.clientBrowser.map(item => item.value),
+                        data: browserValues,
                         backgroundColor: [
+                            '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796',
                             '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'
                         ]
                     }]
@@ -412,13 +707,17 @@
             // Device Type Chart
             const deviceCtx = document.getElementById('device-chart').getContext('2d');
             if (deviceChart) deviceChart.destroy();
+            
+            const deviceLabels = Object.keys(deviceData.device_categories);
+            const deviceValues = Object.values(deviceData.device_categories);
+            
             deviceChart = new Chart(deviceCtx, {
                 type: 'pie',
                 data: {
-                    labels: deviceStats.deviceType.map(item => item.name),
+                    labels: deviceLabels,
                     datasets: [{
-                        data: deviceStats.deviceType.map(item => item.value),
-                        backgroundColor: ['#4e73df', '#1cc88a']
+                        data: deviceValues,
+                        backgroundColor: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e']
                     }]
                 },
                 options: chartOptions
@@ -430,19 +729,24 @@
             const timeCtx = document.getElementById('time-chart').getContext('2d');
             if (timeChart) timeChart.destroy();
             
+            // Extract data for the chart
+            const hours = timeData.hourly_data.map(item => item.hour);
+            const opens = timeData.hourly_data.map(item => item.opens);
+            const clicks = timeData.hourly_data.map(item => item.clicks);
+            
             timeChart = new Chart(timeCtx, {
                 type: 'bar',
                 data: {
-                    labels: timeData.map(item => `${item.hour}:00`),
+                    labels: hours,
                     datasets: [
                         {
                             label: 'Opens',
-                            data: timeData.map(item => item.opens),
+                            data: opens,
                             backgroundColor: '#4e73df'
                         },
                         {
                             label: 'Clicks',
-                            data: timeData.map(item => item.clicks),
+                            data: clicks,
                             backgroundColor: '#1cc88a'
                         }
                     ]
@@ -474,14 +778,26 @@
             const complianceCtx = document.getElementById('compliance-chart').getContext('2d');
             if (complianceChart) complianceChart.destroy();
             
+            // Create sample data if no trends are available
+            let labels = ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5', 'Day 6', 'Day 7'];
+            let unsubRates = [0.25, 0.30, 0.20, 0.28, 0.32, 0.35, complianceData.unsubscribe_rate];
+            let spamRates = [0.05, 0.04, 0.03, 0.06, 0.08, 0.07, complianceData.spam_rate];
+            
+            // If we have real trend data from the API, use it
+            if (complianceData.trends && complianceData.trends.dates && complianceData.trends.dates.length > 0) {
+                labels = complianceData.trends.dates;
+                unsubRates = complianceData.trends.unsubscribe_rates;
+                spamRates = complianceData.trends.spam_complaint_rates;
+            }
+            
             complianceChart = new Chart(complianceCtx, {
                 type: 'line',
                 data: {
-                    labels: complianceData.map(item => item.date),
+                    labels: labels,
                     datasets: [
                         {
                             label: 'Unsubscribe Rate (%)',
-                            data: complianceData.map(item => item.unsubscribeRate),
+                            data: unsubRates,
                             borderColor: '#f6c23e',
                             backgroundColor: 'rgba(246, 194, 62, 0.1)',
                             tension: 0.1,
@@ -489,7 +805,7 @@
                         },
                         {
                             label: 'Spam Complaint Rate (%)',
-                            data: complianceData.map(item => item.spamRate),
+                            data: spamRates,
                             borderColor: '#e74a3b',
                             backgroundColor: 'rgba(231, 74, 59, 0.1)',
                             tension: 0.1,
@@ -524,25 +840,27 @@
         }
         
         // Update compliance alerts
-        function updateComplianceAlerts(currentData) {
+        function updateComplianceAlerts(complianceData) {
             const unsubscribeAlert = document.getElementById('unsubscribe-alert');
             const spamAlert = document.getElementById('spam-alert');
             const unsubscribeStatus = document.getElementById('unsubscribe-status');
             const spamStatus = document.getElementById('spam-status');
             const currentUnsubscribe = document.getElementById('current-unsubscribe');
             const currentSpam = document.getElementById('current-spam');
-            const complianceInsights = document.getElementById('compliance-insights');
             
             // Set current values
-            currentUnsubscribe.textContent = currentData.unsubscribeRate + '%';
-            currentSpam.textContent = currentData.spamRate + '%';
+            const unsubRate = complianceData.unsubscribe_rate;
+            const spamRate = complianceData.spam_rate;
+            
+            currentUnsubscribe.textContent = unsubRate + '%';
+            currentSpam.textContent = spamRate + '%';
             
             // Unsubscribe alert status
-            if (parseFloat(currentData.unsubscribeRate) > 0.5) {
+            if (unsubRate > 0.5) {
                 unsubscribeAlert.className = 'alert-status alert-danger';
                 unsubscribeStatus.textContent = 'ALERT';
                 unsubscribeStatus.className = 'fw-bold text-danger';
-            } else if (parseFloat(currentData.unsubscribeRate) > 0.4) {
+            } else if (unsubRate > 0.4) {
                 unsubscribeAlert.className = 'alert-status alert-warning';
                 unsubscribeStatus.textContent = 'WARNING';
                 unsubscribeStatus.className = 'fw-bold text-warning';
@@ -553,11 +871,11 @@
             }
             
             // Spam alert status
-            if (parseFloat(currentData.spamRate) > 0.1) {
+            if (spamRate > 0.1) {
                 spamAlert.className = 'alert-status alert-danger';
                 spamStatus.textContent = 'ALERT';
                 spamStatus.className = 'fw-bold text-danger';
-            } else if (parseFloat(currentData.spamRate) > 0.08) {
+            } else if (spamRate > 0.08) {
                 spamAlert.className = 'alert-status alert-warning';
                 spamStatus.textContent = 'WARNING';
                 spamStatus.className = 'fw-bold text-warning';
@@ -566,16 +884,157 @@
                 spamStatus.textContent = 'NORMAL';
                 spamStatus.className = 'fw-bold text-success';
             }
+        }
+        
+        // Generate insights based on device data
+        function generateDeviceInsights(deviceData) {
+            const insightsElement = document.getElementById('device-insights');
             
-            // Update insights based on current data
-            if (parseFloat(currentData.unsubscribeRate) > 0.5 || parseFloat(currentData.spamRate) > 0.1) {
-                complianceInsights.textContent = 'Compliance metrics exceeding thresholds! Urgent review of recent campaigns required to identify and address potential issues with content or targeting.';
-            } else if (parseFloat(currentData.unsubscribeRate) > 0.4 || parseFloat(currentData.spamRate) > 0.08) {
-                complianceInsights.textContent = 'Compliance metrics approaching thresholds. Consider reviewing campaign content and targeting strategies to prevent further increases.';
+            // Find dominant OS
+            const osStats = deviceData.os_stats;
+            const dominantOS = Object.keys(osStats).reduce((a, b) => osStats[a] > osStats[b] ? a : b, '');
+            
+            // Find dominant browser
+            const browserStats = deviceData.browser_stats;
+            const dominantBrowser = Object.keys(browserStats).reduce((a, b) => browserStats[a] > browserStats[b] ? a : b, '');
+            
+            // Calculate device breakdown
+            const deviceCategories = deviceData.device_categories;
+            const totalDevices = Object.values(deviceCategories).reduce((sum, val) => sum + val, 0);
+            const desktopPercentage = totalDevices > 0 ? Math.round((deviceCategories.Desktop / totalDevices) * 100) : 0;
+            const mobilePercentage = totalDevices > 0 ? Math.round((deviceCategories.Mobile / totalDevices) * 100) : 0;
+            
+            // Create insights text
+            let insights = '';
+            
+            if (totalDevices === 0) {
+                insights = 'No device data available for this batch.';
             } else {
-                complianceInsights.textContent = 'Compliance metrics within normal ranges. Continue monitoring for any unusual patterns or spikes.';
+                if (desktopPercentage > 70) {
+                    insights = `Desktop users make up the majority (${desktopPercentage}%), with ${dominantOS} being the dominant OS. `;
+                } else if (mobilePercentage > 70) {
+                    insights = `Mobile users make up the majority (${mobilePercentage}%), with ${dominantOS} being the dominant OS. `;
+                } else {
+                    insights = `Mixed device usage with ${desktopPercentage}% desktop and ${mobilePercentage}% mobile users. `;
+                }
+                
+                insights += `${dominantBrowser} leads browser/client usage. `;
+                
+                if (desktopPercentage > 80) {
+                    insights += 'Consider optimizing for desktop experience while ensuring mobile compatibility.';
+                } else if (mobilePercentage > 80) {
+                    insights += 'Prioritize mobile-first design and ensure content is easily viewable on small screens.';
+                } else {
+                    insights += 'Ensure responsive design that works well across all device types.';
+                }
+            }
+            
+            insightsElement.textContent = insights;
+        }
+        
+        // Generate insights based on time data
+        function generateTimeInsights(timeData) {
+            const insightsElement = document.getElementById('time-insights');
+            
+            // If we have hourly data
+            if (timeData.hourly_data && timeData.hourly_data.length > 0) {
+                // Find peak engagement hours
+                const sortedHours = [...timeData.hourly_data].sort((a, b) => b.opens - a.opens);
+                const peakHours = sortedHours.slice(0, 3).map(item => item.hour);
+                
+                // Create insights text
+                let insights = '';
+                
+                if (timeData.total_opens === 0) {
+                    insights = 'No time-based engagement data available for analysis.';
+                } else {
+                    insights = `Peak engagement occurs between ${peakHours.join(', ')}, `;
+                    
+                    // Check if there's a clear morning/afternoon/evening pattern
+                    const morningHours = peakHours.filter(h => {
+                        const hour = parseInt(h.split(':')[0]);
+                        return hour >= 6 && hour < 12;
+                    });
+                    
+                    const afternoonHours = peakHours.filter(h => {
+                        const hour = parseInt(h.split(':')[0]);
+                        return hour >= 12 && hour < 18;
+                    });
+                    
+                    const eveningHours = peakHours.filter(h => {
+                        const hour = parseInt(h.split(':')[0]);
+                        return hour >= 18 || hour < 6;
+                    });
+                    
+                    if (morningHours.length > 1) {
+                        insights += 'suggesting morning is the optimal time for sending. ';
+                    } else if (afternoonHours.length > 1) {
+                        insights += 'suggesting afternoon is the optimal time for sending. ';
+                    } else if (eveningHours.length > 1) {
+                        insights += 'suggesting evening is the optimal time for sending. ';
+                    } else {
+                        insights += 'with no clear pattern for optimal sending time. ';
+                    }
+                    
+                    insights += 'Consider scheduling important campaigns during these peak hours for maximum impact.';
+                }
+                
+                insightsElement.textContent = insights;
+            } else {
+                insightsElement.textContent = 'No time-based data available for this batch.';
             }
         }
+        
+        // Generate insights based on compliance data
+        function generateComplianceInsights(complianceData) {
+            const insightsElement = document.getElementById('compliance-insights');
+            
+            const unsubscribeRate = complianceData.unsubscribe_rate;
+            const spamRate = complianceData.spam_rate;
+            
+            // Create insights text
+            let insights = '';
+            
+            if (unsubscribeRate > 0.5 || spamRate > 0.1) {
+                insights = 'Compliance metrics exceeding thresholds! Urgent review of content or targeting recommended. ';
+                
+                if (unsubscribeRate > 0.5) {
+                    insights += `High unsubscribe rate (${unsubscribeRate}%) indicates potential content or audience mismatch. `;
+                }
+                
+                if (spamRate > 0.1) {
+                    insights += `Elevated spam complaints (${spamRate}%) may indicate deliverability issues or content triggering spam filters.`;
+                }
+            } else if (unsubscribeRate > 0.4 || spamRate > 0.08) {
+                insights = 'Compliance metrics approaching thresholds. Consider reviewing campaign content and targeting strategies. ';
+                
+                if (unsubscribeRate > 0.4) {
+                    insights += `Unsubscribe rate (${unsubscribeRate}%) is higher than ideal. `;
+                }
+                
+                if (spamRate > 0.08) {
+                    insights += `Spam complaint rate (${spamRate}%) is approaching concerning levels.`;
+                }
+            } else {
+                insights = `Compliance metrics within normal ranges (Unsubscribe: ${unsubscribeRate}%, Spam: ${spamRate}%). Continue monitoring for any unusual patterns or spikes.`;
+            }
+            
+            insightsElement.textContent = insights;
+        }
+        
+        // Helper function to show loading indicator
+        function showLoading(message) {
+            loadingText.textContent = message || 'Loading...';
+            loadingIndicator.style.display = 'block';
+        }
+        
+        // Helper function to hide loading indicator
+        function hideLoading() {
+            loadingIndicator.style.display = 'none';
+        }
+        
+        // Load batches on page load (using default date range)
+        loadBatches();
     });
 </script>
 {% endblock %}

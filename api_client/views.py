@@ -530,19 +530,12 @@ def batch_list(request):
         'from_date': default_from.strftime('%Y-%m-%d'),
         'to_date': default_to.strftime('%Y-%m-%d'),
         'batch_types': [
-            {'value': 'All', 'label': 'All Types'},
             {'value': 'Email', 'label': 'Email'},
-            {'value': 'Sms', 'label': 'SMS'},
-            {'value': 'WhatsApp', 'label': 'WhatsApp'},
-            {'value': 'Notification', 'label': 'Notification'},
-            {'value': 'DocumentUpdate', 'label': 'Document Update'},
-            {'value': 'AppTemplateUpdate', 'label': 'App Template Update'}
         ],
         'selected_type': request.POST.get('batch_type', 'All')
     }
     
     return render(request, 'api_client/batch_list.html', context)
-
 
 def batch_device_analytics(request):
     """API endpoint for device and client analytics for a specific batch"""
@@ -560,99 +553,111 @@ def batch_device_analytics(request):
         # Get the API client instance
         client = QuadientAPIClient()
         
-        # Get batch details first to ensure it exists
-        batch_details_response = client.make_request(
-            endpoint="/api/query/Messenger/ContentListWithFilterV4",
-            method="POST",
-            data={
-                "filter": {
-                    "documentIds": [int(batch_id)]
-                }
-            }
-        )
-        
-        if not batch_details_response or batch_details_response.status_code != 200:
-            return JsonResponse({
-                'success': False,
-                'error': 'Failed to retrieve batch details'
-            }, status=500)
-        
-        batch_details = batch_details_response.json()
-        if not batch_details.get('documents'):
-            return JsonResponse({
-                'success': False,
-                'error': 'Batch not found'
-            }, status=404)
-        
-        # Get device and client statistics for the batch
-        stats_response = client.make_request(
-            endpoint="/api/query/Messenger/BatchStatisticsByBatchIds",
-            method="POST",
-            data={"batchIds": [int(batch_id)]}
-        )
-        
-        if not stats_response or stats_response.status_code != 200:
-            return JsonResponse({
-                'success': False,
-                'error': 'Failed to retrieve batch statistics'
-            }, status=500)
-        
-        stats_data = stats_response.json()
-        
-        # Extract OS and browser statistics
-        os_stats = {}
-        browser_stats = {}
-        
-        # Process client OS data
-        if 'clientOS' in stats_data:
-            # Convert array to dictionary if it's an array of objects
-            if isinstance(stats_data['clientOS'], list):
-                for item in stats_data['clientOS']:
-                    if isinstance(item, dict) and 'key' in item and 'value' in item:
-                        os_name = clean_os_name(item['key'])
-                        os_stats[os_name] = item['value']
-            # If it's already a dictionary, use it directly
-            elif isinstance(stats_data['clientOS'], dict):
-                for key, value in stats_data['clientOS'].items():
-                    os_name = clean_os_name(key)
-                    os_stats[os_name] = value
-        
-        # Process client browser data
-        if 'clientBrowser' in stats_data:
-            # Convert array to dictionary if it's an array of objects
-            if isinstance(stats_data['clientBrowser'], list):
-                for item in stats_data['clientBrowser']:
-                    if isinstance(item, dict) and 'key' in item and 'value' in item:
-                        browser_name = clean_browser_name(item['key'])
-                        browser_stats[browser_name] = item['value']
-            # If it's already a dictionary, use it directly
-            elif isinstance(stats_data['clientBrowser'], dict):
-                for key, value in stats_data['clientBrowser'].items():
-                    browser_name = clean_browser_name(key)
-                    browser_stats[browser_name] = value
-        
-        # Get batch report for detailed metrics
+        # First, call the batch report API to get device statistics
         report_response = client.make_request(
             endpoint="/api/query/Messenger/ReportQuery",
             method="POST",
             data={"batchId": int(batch_id)}
         )
         
-        # Initialize time-based engagement data
-        hourly_engagement = {}
-        day_of_week_engagement = {}
+        if not report_response or report_response.status_code != 200:
+            return JsonResponse({
+                'success': False,
+                'error': 'Failed to retrieve batch report'
+            }, status=500)
         
-        # Initialize total metrics
-        total_opens = sum(os_stats.values())
-        total_clicks = 0
+        # Get batch statistics for device info
+        stats_response = client.make_request(
+            endpoint="/api/query/Messenger/BatchStatisticsByBatchIds",
+            method="POST",
+            data={"batchIds": [int(batch_id)]}
+        )
+        
+        # Get basic batch info
+        basic_batch_response = client.make_request(
+            endpoint="/api/query/Messenger/ListBatchesQueryByUploadTimeV2",
+            method="POST",
+            data={
+                "from": (datetime.now() - timedelta(days=90)).isoformat(),
+                "to": datetime.now().isoformat(),
+                "type": "Email"
+            }
+        )
+        
+        # Initialize data
         total_sent = 0
         total_delivered = 0
+        total_opens = 0
+        total_clicks = 0
+        batch_name = f"Batch {batch_id}"
         
-        # Get batch details from the list endpoint
-        batch_data = batch_details.get('documents', [])[0] if batch_details.get('documents') else {}
-        total_sent = batch_data.get('sent', 0)
-        total_delivered = batch_data.get('delivered', 0)
+        # Extract basic batch data
+        if basic_batch_response and basic_batch_response.status_code == 200:
+            batch_list_data = basic_batch_response.json()
+            # Search for batch in all categories
+            for category in ['running', 'waiting', 'onDemand']:
+                for batch in batch_list_data.get(category, []):
+                    if str(batch.get('id')) == str(batch_id):
+                        total_sent = batch.get('sent', 0)
+                        total_delivered = batch.get('delivered', 0)
+                        total_opens = batch.get('opened', 0)
+                        total_clicks = batch.get('uniqueClicks', 0)
+                        batch_name = batch.get('name', f"Batch {batch_id}")
+                        break
         
+        # Process OS and browser statistics
+        os_stats = {}
+        browser_stats = {}
+        
+        if stats_response and stats_response.status_code == 200:
+            stats_data = stats_response.json()
+            
+            # Extract OS data
+            if 'clientOS' in stats_data:
+                os_data = stats_data.get('clientOS', [])
+                if isinstance(os_data, list):
+                    for item in os_data:
+                        if isinstance(item, str):
+                            os_name = clean_os_name(item)
+                            os_stats[os_name] = os_stats.get(os_name, 0) + 1
+                        elif isinstance(item, dict):
+                            if 'key' in item and 'value' in item:
+                                os_name = clean_os_name(item['key'])
+                                os_stats[os_name] = os_stats.get(os_name, 0) + item['value']
+                            elif 'name' in item and 'count' in item:
+                                os_name = clean_os_name(item['name'])
+                                os_stats[os_name] = os_stats.get(os_name, 0) + item['count']
+                elif isinstance(os_data, dict):
+                    for key, value in os_data.items():
+                        os_name = clean_os_name(key)
+                        os_stats[os_name] = os_stats.get(os_name, 0) + value
+            
+            # Extract browser data
+            if 'clientBrowser' in stats_data:
+                browser_data = stats_data.get('clientBrowser', [])
+                if isinstance(browser_data, list):
+                    for item in browser_data:
+                        if isinstance(item, str):
+                            browser_name = clean_browser_name(item)
+                            browser_stats[browser_name] = browser_stats.get(browser_name, 0) + 1
+                        elif isinstance(item, dict):
+                            if 'key' in item and 'value' in item:
+                                browser_name = clean_browser_name(item['key'])
+                                browser_stats[browser_name] = browser_stats.get(browser_name, 0) + item['value']
+                            elif 'name' in item and 'count' in item:
+                                browser_name = clean_browser_name(item['name'])
+                                browser_stats[browser_name] = browser_stats.get(browser_name, 0) + item['count']
+                elif isinstance(browser_data, dict):
+                    for key, value in browser_data.items():
+                        browser_name = clean_browser_name(key)
+                        browser_stats[browser_name] = browser_stats.get(browser_name, 0) + value
+        
+        # Set default values if we don't have data
+        if not os_stats:
+            os_stats = {'Unknown': 1}
+        if not browser_stats:
+            browser_stats = {'Unknown': 1}
+            
         # Calculate device categories
         device_categories = {
             'Desktop': 0,
@@ -712,12 +717,12 @@ def batch_device_analytics(request):
         return JsonResponse({
             'success': True,
             'batch_id': batch_id,
-            'batch_name': batch_data.get('name', f'Batch {batch_id}'),
-            'batch_type': batch_data.get('type', 'Unknown'),
+            'batch_name': batch_name,
+            'batch_type': 'Email',
             'total_sent': total_sent,
             'total_delivered': total_delivered,
             'total_opens': total_opens,
-            'total_clicks': batch_data.get('uniqueClicks', 0),
+            'total_clicks': total_clicks,
             'os_stats': os_stats,
             'browser_stats': browser_stats,
             'device_categories': device_categories,
@@ -729,6 +734,7 @@ def batch_device_analytics(request):
             'success': False,
             'error': str(e)
         }, status=500)
+    
 
 def clean_os_name(os_name):
     """Clean and normalize OS names"""
