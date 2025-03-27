@@ -1,9 +1,8 @@
-import json
 import logging
 import requests
 from django.conf import settings
 from django.utils import timezone
-from .models import APIRequestLog, BatchRecord, Document, APIConfiguration
+from .models import APIRequestLog, BatchRecord
 
 logger = logging.getLogger(__name__)
 

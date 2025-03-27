@@ -4,8 +4,16 @@ from django.shortcuts import render
 from django.http import JsonResponse
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
+from datetime import datetime, timedelta
+from .services import QuadientAPIClient
+from collections import defaultdict
+import requests
+import csv
+from io import StringIO
+
 
 # Get API settings from Django settings
+
 API_BASE_URL = settings.QUADIENT_API_BASE_URL
 API_KEY = settings.QUADIENT_API_KEY
 
@@ -262,11 +270,7 @@ def call_api(request):
 
 def report_query(request):
     """View for querying and displaying Messenger reports"""
-    import requests
-    import csv
-    from io import StringIO
-    from .services import QuadientAPIClient
-    
+
     error_message = None
     report_content = None
     filename = None
@@ -439,10 +443,7 @@ def process_record(fields, parsed_data):
 
 def batch_list(request):
     """View for listing batches from Quadient API"""
-    import requests
-    from datetime import datetime, timedelta
-    from django.shortcuts import render
-    from .services import QuadientAPIClient
+
     
     error_message = None
     batches = {
@@ -545,10 +546,6 @@ def batch_list(request):
 
 def batch_device_analytics(request):
     """API endpoint for device and client analytics for a specific batch"""
-    import json
-    from django.http import JsonResponse
-    from datetime import datetime, timedelta
-    from .services import QuadientAPIClient
     
     # Get batch ID from request
     batch_id = request.GET.get('batch_id')
@@ -789,11 +786,6 @@ def clean_browser_name(browser_name):
 
 def time_analytics(request):
     """API endpoint for time-based analytics"""
-    import json
-    from django.http import JsonResponse
-    from datetime import datetime, timedelta
-    import re
-    from .services import QuadientAPIClient
     
     # Get date range from request
     from_date = request.GET.get('from_date')
@@ -990,11 +982,6 @@ def time_analytics(request):
 
 def compliance_monitoring(request):
     """API endpoint for compliance and unsubscribe monitoring"""
-    import json
-    from django.http import JsonResponse
-    from datetime import datetime, timedelta
-    from .services import QuadientAPIClient
-    from collections import defaultdict
     
     # Get date range from request
     from_date = request.GET.get('from_date')
@@ -1172,10 +1159,7 @@ def compliance_monitoring(request):
 
 def batch_compliance_data(request):
     """API endpoint for compliance data for a specific batch"""
-    import json
-    from django.http import JsonResponse
-    from .services import QuadientAPIClient
-    from datetime import datetime
+
     
     # Get batch ID from request
     batch_id = request.GET.get('batch_id')
@@ -1285,10 +1269,6 @@ def batch_compliance_data(request):
 
 def start_batch(request):
     """API endpoint to start sending a batch"""
-    import json
-    from django.http import JsonResponse
-    from django.views.decorators.csrf import csrf_exempt
-    from .services import QuadientAPIClient
     
     if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
@@ -1329,3 +1309,478 @@ def start_batch(request):
     
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    
+
+
+
+
+def dashboard_delivery_performance(request):
+    """API endpoint for delivery performance statistics dashboard"""
+
+    
+    # Get date range from request
+    from_date = request.GET.get('from_date')
+    to_date = request.GET.get('to_date')
+    
+    # Default to last 30 days if not provided
+    if not from_date:
+        from_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+    if not to_date:
+        to_date = datetime.now().strftime('%Y-%m-%d')
+    
+    try:
+        # Convert string dates to datetime objects
+        from_datetime = datetime.fromisoformat(from_date)
+        to_datetime = datetime.fromisoformat(to_date)
+        
+        # Get the API client instance
+        client = QuadientAPIClient()
+        
+        # Query batches for the date range
+        batches_response = client.make_request(
+            endpoint="/api/query/Messenger/ListBatchesQueryByUploadTimeV2",
+            method="POST",
+            data={
+                "from": from_datetime.isoformat(),
+                "to": to_datetime.isoformat()
+            }
+        )
+        
+        if not batches_response or batches_response.status_code != 200:
+            return JsonResponse({
+                'success': False,
+                'error': 'Failed to retrieve batch data'
+            }, status=500)
+        
+        batch_data = batches_response.json()
+        
+        # Combine all batches
+        all_batches = []
+        for category in ['running', 'waiting', 'onDemand']:
+            if category in batch_data:
+                all_batches.extend(batch_data[category])
+        
+        # Calculate delivery statistics
+        total_batches = len(all_batches)
+        total_sent = sum(batch.get('sent', 0) for batch in all_batches)
+        total_delivered = sum(batch.get('delivered', 0) for batch in all_batches)
+        total_failed = sum(batch.get('failed', 0) for batch in all_batches)
+        total_bounced = sum(batch.get('bounced', 0) for batch in all_batches)
+        
+        # Calculate delivery rate
+        delivery_rate = (total_delivered / total_sent) * 100 if total_sent > 0 else 0
+        failure_rate = (total_failed / total_sent) * 100 if total_sent > 0 else 0
+        bounce_rate = (total_bounced / total_sent) * 100 if total_sent > 0 else 0
+        
+        # Group batches by date for trend analysis
+        date_stats = {}
+        for batch in all_batches:
+            # Extract date from lastUploadTime
+            if 'lastUploadTime' in batch:
+                try:
+                    timestamp_str = batch['lastUploadTime']
+                    timestamp = int(timestamp_str.replace('/Date(', '').replace(')/', '')) / 1000
+                    batch_date = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
+                    
+                    if batch_date not in date_stats:
+                        date_stats[batch_date] = {
+                            'sent': 0,
+                            'delivered': 0,
+                            'failed': 0,
+                            'bounced': 0
+                        }
+                    
+                    date_stats[batch_date]['sent'] += batch.get('sent', 0)
+                    date_stats[batch_date]['delivered'] += batch.get('delivered', 0)
+                    date_stats[batch_date]['failed'] += batch.get('failed', 0)
+                    date_stats[batch_date]['bounced'] += batch.get('bounced', 0)
+                except (ValueError, TypeError):
+                    continue
+        
+        # Convert date_stats to lists for the response
+        dates = sorted(date_stats.keys())
+        daily_sent = [date_stats[date]['sent'] for date in dates]
+        daily_delivered = [date_stats[date]['delivered'] for date in dates]
+        daily_failed = [date_stats[date]['failed'] for date in dates]
+        daily_bounced = [date_stats[date]['bounced'] for date in dates]
+        
+        # Calculate daily delivery rates
+        daily_delivery_rates = []
+        for date in dates:
+            sent = date_stats[date]['sent']
+            delivered = date_stats[date]['delivered']
+            rate = (delivered / sent) * 100 if sent > 0 else 0
+            daily_delivery_rates.append(round(rate, 1))
+        
+        # Return the data
+        return JsonResponse({
+            'success': True,
+            'total_batches': total_batches,
+            'total_sent': total_sent,
+            'total_delivered': total_delivered,
+            'total_failed': total_failed,
+            'total_bounced': total_bounced,
+            'delivery_rate': round(delivery_rate, 1),
+            'failure_rate': round(failure_rate, 1),
+            'bounce_rate': round(bounce_rate, 1),
+            'trend_data': {
+                'dates': dates,
+                'daily_sent': daily_sent,
+                'daily_delivered': daily_delivered,
+                'daily_failed': daily_failed,
+                'daily_bounced': daily_bounced,
+                'daily_delivery_rates': daily_delivery_rates
+            }
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+def dashboard_engagement_analytics(request):
+    """API endpoint for engagement metrics dashboard (opens, clicks)"""
+
+    # Get date range from request
+    from_date = request.GET.get('from_date')
+    to_date = request.GET.get('to_date')
+    
+    # Default to last 30 days if not provided
+    if not from_date:
+        from_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+    if not to_date:
+        to_date = datetime.now().strftime('%Y-%m-%d')
+    
+    try:
+        # Convert string dates to datetime objects
+        from_datetime = datetime.fromisoformat(from_date)
+        to_datetime = datetime.fromisoformat(to_date)
+        
+        # Get the API client instance
+        client = QuadientAPIClient()
+        
+        # Query batches for the date range
+        batches_response = client.make_request(
+            endpoint="/api/query/Messenger/ListBatchesQueryByUploadTimeV2",
+            method="POST",
+            data={
+                "from": from_datetime.isoformat(),
+                "to": to_datetime.isoformat()
+            }
+        )
+        
+        if not batches_response or batches_response.status_code != 200:
+            return JsonResponse({
+                'success': False,
+                'error': 'Failed to retrieve batch data'
+            }, status=500)
+        
+        batch_data = batches_response.json()
+        
+        # Combine all batches
+        all_batches = []
+        for category in ['running', 'waiting', 'onDemand']:
+            if category in batch_data:
+                all_batches.extend(batch_data[category])
+        
+        # Calculate engagement statistics
+        total_batches = len(all_batches)
+        total_sent = sum(batch.get('sent', 0) for batch in all_batches)
+        total_delivered = sum(batch.get('delivered', 0) for batch in all_batches)
+        total_opens = sum(batch.get('opened', 0) for batch in all_batches)
+        total_clicks = sum(batch.get('clicked', 0) for batch in all_batches)
+        unique_opens = sum(batch.get('uniqueOpens', 0) for batch in all_batches)
+        unique_clicks = sum(batch.get('uniqueClicks', 0) for batch in all_batches)
+        
+        # Calculate engagement rates
+        open_rate = (unique_opens / total_delivered) * 100 if total_delivered > 0 else 0
+        click_rate = (unique_clicks / total_delivered) * 100 if total_delivered > 0 else 0
+        click_to_open_rate = (unique_clicks / unique_opens) * 100 if unique_opens > 0 else 0
+        
+        # Group batches by date for trend analysis
+        date_stats = {}
+        for batch in all_batches:
+            # Extract date from lastUploadTime
+            if 'lastUploadTime' in batch:
+                try:
+                    timestamp_str = batch['lastUploadTime']
+                    timestamp = int(timestamp_str.replace('/Date(', '').replace(')/', '')) / 1000
+                    batch_date = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
+                    
+                    if batch_date not in date_stats:
+                        date_stats[batch_date] = {
+                            'delivered': 0,
+                            'opens': 0,
+                            'clicks': 0,
+                            'unique_opens': 0,
+                            'unique_clicks': 0
+                        }
+                    
+                    date_stats[batch_date]['delivered'] += batch.get('delivered', 0)
+                    date_stats[batch_date]['opens'] += batch.get('opened', 0)
+                    date_stats[batch_date]['clicks'] += batch.get('clicked', 0)
+                    date_stats[batch_date]['unique_opens'] += batch.get('uniqueOpens', 0)
+                    date_stats[batch_date]['unique_clicks'] += batch.get('uniqueClicks', 0)
+                except (ValueError, TypeError):
+                    continue
+        
+        # Convert date_stats to lists for the response
+        dates = sorted(date_stats.keys())
+        daily_opens = [date_stats[date]['opens'] for date in dates]
+        daily_clicks = [date_stats[date]['clicks'] for date in dates]
+        daily_unique_opens = [date_stats[date]['unique_opens'] for date in dates]
+        daily_unique_clicks = [date_stats[date]['unique_clicks'] for date in dates]
+        
+        # Calculate daily engagement rates
+        daily_open_rates = []
+        daily_click_rates = []
+        daily_cto_rates = []  # click-to-open rates
+        
+        for date in dates:
+            delivered = date_stats[date]['delivered']
+            unique_opens = date_stats[date]['unique_opens']
+            unique_clicks = date_stats[date]['unique_clicks']
+            
+            open_rate = (unique_opens / delivered) * 100 if delivered > 0 else 0
+            click_rate = (unique_clicks / delivered) * 100 if delivered > 0 else 0
+            cto_rate = (unique_clicks / unique_opens) * 100 if unique_opens > 0 else 0
+            
+            daily_open_rates.append(round(open_rate, 1))
+            daily_click_rates.append(round(click_rate, 1))
+            daily_cto_rates.append(round(cto_rate, 1))
+        
+        # Return the data
+        return JsonResponse({
+            'success': True,
+            'total_batches': total_batches,
+            'total_sent': total_sent,
+            'total_delivered': total_delivered,
+            'total_opens': total_opens,
+            'total_clicks': total_clicks,
+            'unique_opens': unique_opens,
+            'unique_clicks': unique_clicks,
+            'open_rate': round(open_rate, 1),
+            'click_rate': round(click_rate, 1),
+            'click_to_open_rate': round(click_to_open_rate, 1),
+            'trend_data': {
+                'dates': dates,
+                'daily_opens': daily_opens,
+                'daily_clicks': daily_clicks,
+                'daily_unique_opens': daily_unique_opens,
+                'daily_unique_clicks': daily_unique_clicks,
+                'daily_open_rates': daily_open_rates,
+                'daily_click_rates': daily_click_rates,
+                'daily_cto_rates': daily_cto_rates
+            }
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+def dashboard_device_analytics(request):
+    """API endpoint for aggregated device analytics across all batches"""
+
+    
+    # Get date range from request
+    from_date = request.GET.get('from_date')
+    to_date = request.GET.get('to_date')
+    
+    # Default to last 30 days if not provided
+    if not from_date:
+        from_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+    if not to_date:
+        to_date = datetime.now().strftime('%Y-%m-%d')
+    
+    try:
+        # Convert string dates to datetime objects
+        from_datetime = datetime.fromisoformat(from_date)
+        to_datetime = datetime.fromisoformat(to_date)
+        
+        # Get the API client instance
+        client = QuadientAPIClient()
+        
+        # Query batches for the date range
+        batches_response = client.make_request(
+            endpoint="/api/query/Messenger/ListBatchesQueryByUploadTimeV2",
+            method="POST",
+            data={
+                "from": from_datetime.isoformat(),
+                "to": to_datetime.isoformat()
+            }
+        )
+        
+        if not batches_response or batches_response.status_code != 200:
+            return JsonResponse({
+                'success': False,
+                'error': 'Failed to retrieve batch data'
+            }, status=500)
+        
+        batch_data = batches_response.json()
+        
+        # Combine all batches
+        all_batches = []
+        for category in ['running', 'waiting', 'onDemand']:
+            if category in batch_data:
+                all_batches.extend(batch_data[category])
+        
+        # Filter out batches with no opens
+        active_batches = [batch for batch in all_batches if batch.get('opened', 0) > 0]
+        
+        # If no active batches, return empty data
+        if not active_batches:
+            return JsonResponse({
+                'success': True,
+                'total_batches': 0,
+                'total_opens': 0,
+                'os_stats': {},
+                'browser_stats': {},
+                'device_categories': {
+                    'Desktop': 0,
+                    'Mobile': 0,
+                    'Tablet': 0,
+                    'Other': 0
+                },
+                'email_client_categories': {
+                    'Webmail': 0,
+                    'Desktop Client': 0,
+                    'Mobile Client': 0,
+                    'Other': 0
+                }
+            })
+        
+        # Initialize aggregated statistics
+        os_stats = defaultdict(int)
+        browser_stats = defaultdict(int)
+        total_opens = 0
+        
+        # Process each batch to get device and client statistics
+        for batch in active_batches:
+            batch_id = batch.get('id')
+            if not batch_id:
+                continue
+            
+            # Get device statistics for this batch
+            stats_response = client.make_request(
+                endpoint="/api/query/Messenger/BatchStatisticsByBatchIds",
+                method="POST",
+                data={"batchIds": [int(batch_id)]}
+            )
+            
+            if not stats_response or stats_response.status_code != 200:
+                continue
+            
+            stats_data = stats_response.json()
+            
+            # Process client OS data
+            if 'clientOS' in stats_data:
+                # Handle different possible formats of clientOS data
+                if isinstance(stats_data['clientOS'], list):
+                    for item in stats_data['clientOS']:
+                        if isinstance(item, dict) and 'key' in item and 'value' in item:
+                            os_name = clean_os_name(item['key'])
+                            os_stats[os_name] += item['value']
+                            total_opens += item['value']
+                elif isinstance(stats_data['clientOS'], dict):
+                    for key, value in stats_data['clientOS'].items():
+                        os_name = clean_os_name(key)
+                        os_stats[os_name] += value
+                        total_opens += value
+            
+            # Process client browser data
+            if 'clientBrowser' in stats_data:
+                # Handle different possible formats of clientBrowser data
+                if isinstance(stats_data['clientBrowser'], list):
+                    for item in stats_data['clientBrowser']:
+                        if isinstance(item, dict) and 'key' in item and 'value' in item:
+                            browser_name = clean_browser_name(item['key'])
+                            browser_stats[browser_name] += item['value']
+                elif isinstance(stats_data['clientBrowser'], dict):
+                    for key, value in stats_data['clientBrowser'].items():
+                        browser_name = clean_browser_name(key)
+                        browser_stats[browser_name] += value
+        
+        # Calculate device categories
+        device_categories = {
+            'Desktop': 0,
+            'Mobile': 0,
+            'Tablet': 0,
+            'Other': 0
+        }
+        
+        # Maps of OS names to device categories
+        os_device_map = {
+            'Windows': 'Desktop',
+            'MacOS': 'Desktop',
+            'Linux': 'Desktop',
+            'iOS': 'Mobile',
+            'Android': 'Mobile',
+            'ChromeOS': 'Desktop',
+            'WindowsPhone': 'Mobile',
+            'BlackBerry': 'Mobile'
+        }
+        
+        # Calculate device categories from OS data
+        for os_name, count in os_stats.items():
+            category = os_device_map.get(os_name, 'Other')
+            device_categories[category] += count
+        
+        # Email client categories
+        email_client_categories = {
+            'Webmail': 0,
+            'Desktop Client': 0,
+            'Mobile Client': 0,
+            'Other': 0
+        }
+        
+        # Maps of browser names to email client categories
+        browser_client_map = {
+            'Gmail': 'Webmail',
+            'Outlook': 'Desktop Client',
+            'AppleMail': 'Desktop Client',
+            'Thunderbird': 'Desktop Client',
+            'WindowsLiveMail': 'Desktop Client',
+            'Chrome': 'Webmail',
+            'Firefox': 'Webmail',
+            'Safari': 'Webmail',
+            'Edge': 'Webmail',
+            'ChromeMobile': 'Mobile Client',
+            'FirefoxMobile': 'Mobile Client',
+            'SafariMobile': 'Mobile Client',
+            'EdgeMobile': 'Mobile Client'
+        }
+        
+        # Calculate email client categories from browser data
+        for browser_name, count in browser_stats.items():
+            category = browser_client_map.get(browser_name, 'Other')
+            email_client_categories[category] += count
+        
+        # Return the data
+        return JsonResponse({
+            'success': True,
+            'total_batches': len(active_batches),
+            'total_opens': total_opens,
+            'os_stats': dict(os_stats),
+            'browser_stats': dict(browser_stats),
+            'device_categories': device_categories,
+            'email_client_categories': email_client_categories
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+    
+
+
+
+
+def analytics_dashboard(request):
+    """
+    View for the analytics dashboard
+    """
+    return render(request, 'analytics_dashboard.html')

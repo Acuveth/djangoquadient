@@ -16,4 +16,5 @@ urlpatterns = [
     path('api/dashboard/time-analytics/', views.time_analytics, name='time_analytics'),
     path('api/dashboard/compliance-monitoring/', views.compliance_monitoring, name='compliance_monitoring'),
     path('api/dashboard/batch-compliance-data/', views.batch_compliance_data, name='batch_compliance_data'),
+    path('analytics/', views.analytics_dashboard, name='analytics_dashboard'),
 ]
