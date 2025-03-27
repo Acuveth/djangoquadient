@@ -1776,11 +1776,8 @@ def dashboard_device_analytics(request):
         }, status=500)
     
 
-
-
-
 def analytics_dashboard(request):
     """
     View for the analytics dashboard
     """
-    return render(request, 'analytics_dashboard.html')
+    return render(request, 'api_client/analytics_dashboard.html')
